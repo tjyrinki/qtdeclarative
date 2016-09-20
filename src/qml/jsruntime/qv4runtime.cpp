@@ -60,7 +60,11 @@
 
 #include <wtf/MathExtras.h>
 
-#include "../../3rdparty/double-conversion/double-conversion.h"
+#ifdef SYSTEM_DOUBLECONVERSION
+#include <double-conversion/double-conversion.h>
+#else
+#include <double-conversion.h>
+#endif
 
 #ifdef QV4_COUNT_RUNTIME_FUNCTIONS
 #  include <QtCore/QBuffer>

@@ -28,10 +28,10 @@ HEADERS += \
     $$PWD/qv4isel_moth_p.h \
     $$PWD/qv4instr_moth_p.h
 
-
 SOURCES += \
     $$PWD/qqmltypecompiler.cpp \
     $$PWD/qv4instr_moth.cpp \
     $$PWD/qv4isel_moth.cpp
 
+DEFINES += V4_UNIT_CACHE
 }

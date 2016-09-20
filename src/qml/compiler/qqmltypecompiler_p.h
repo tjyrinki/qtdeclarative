@@ -152,6 +152,7 @@ protected:
     QHash<int, QQmlCompiledData::TypeReference*> *resolvedTypes;
     QVector<QByteArray> vmeMetaObjects;
     QVector<QQmlPropertyCache*> propertyCaches;
+    QUrl m_url;
 };
 
 // "Converts" signal expressions to full-fleged function declarations with

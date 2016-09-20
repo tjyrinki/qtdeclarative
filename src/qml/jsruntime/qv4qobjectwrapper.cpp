@@ -632,6 +632,7 @@ ReturnedValue QObjectWrapper::getProperty(ExecutionEngine *engine, QObject *obje
     QQmlPropertyCache *cache = ddata->propertyCache;
     Q_ASSERT(cache);
     QQmlPropertyData *property = cache->property(propertyIndex);
+
     Q_ASSERT(property); // We resolved this property earlier, so it better exist!
     return getProperty(engine, object, property, captureRequired);
 }

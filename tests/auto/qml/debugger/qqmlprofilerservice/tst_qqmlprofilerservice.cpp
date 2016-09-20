@@ -359,7 +359,7 @@ void QQmlProfilerClient::messageReceived(const QByteArray &message)
 void tst_QQmlProfilerService::connect(bool block, const QString &testFile, bool restrictServices)
 {
     // ### Still using qmlscene due to QTBUG-33377
-    const QString executable = QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene";
+    const QString executable = QLatin1String("../../../../../bin") + "/qmlscene";
     QStringList arguments;
     arguments << QString::fromLatin1("-qmljsdebugger=port:%1,%2%3%4")
                  .arg(STR_PORT_FROM).arg(STR_PORT_TO)

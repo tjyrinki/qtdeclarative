@@ -2,10 +2,10 @@ TEMPLATE = subdirs
 
 PUBLICTESTS += \
     geometry \
-    rendernode \
+#    rendernode \ (QTBUG-35924)
     qquickpixmapcache
 
-qtHaveModule(widgets): PUBLICTESTS += nodes
+#qtHaveModule(widgets): PUBLICTESTS += nodes
 
 !cross_compile: PRIVATETESTS += examples
 

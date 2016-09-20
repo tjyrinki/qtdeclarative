@@ -102,7 +102,7 @@ void tst_QQmlEngineDebugInspectorIntegration::init(bool restrictServices)
                                     QString());
 
     // ### Still using qmlscene because of QTBUG-33376
-    m_process = new QQmlDebugProcess(QLibraryInfo::location(QLibraryInfo::BinariesPath)
+    m_process = new QQmlDebugProcess(QLatin1String("../../../../../bin")
                                      + "/qmlscene", this);
     m_process->start(QStringList() << argument << testFile("qtquick2.qml"));
     QVERIFY2(m_process->waitForSessionStart(),

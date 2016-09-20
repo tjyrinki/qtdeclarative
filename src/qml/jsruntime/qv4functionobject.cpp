@@ -287,6 +287,7 @@ ReturnedValue FunctionCtor::construct(const Managed *that, CallData *callData)
 
     Compiler::JSUnitGenerator jsGenerator(&module);
     QScopedPointer<EvalInstructionSelection> isel(scope.engine->iselFactory->create(QQmlEnginePrivate::get(scope.engine), scope.engine->executableAllocator, &module, &jsGenerator));
+    isel->setEngine(QQmlEnginePrivate::get(scope.engine));
     QQmlRefPointer<CompiledData::CompilationUnit> compilationUnit = isel->compile();
     Function *vmf = compilationUnit->linkToEngine(scope.engine);
 

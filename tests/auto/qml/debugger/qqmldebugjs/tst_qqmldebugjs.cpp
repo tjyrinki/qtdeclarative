@@ -829,7 +829,7 @@ void tst_QQmlDebugJS::cleanupTestCase()
 void tst_QQmlDebugJS::init(const QString &qmlFile, bool blockMode, bool restrictServices)
 {
     connection = new QQmlDebugConnection();
-    process = new QQmlDebugProcess(QLibraryInfo::location(QLibraryInfo::BinariesPath) + "/qmlscene", this);
+    process = new QQmlDebugProcess(QLatin1String("../../../../../bin") + "/qmlscene", this);
     client = new QJSDebugClient(connection);
 
     const char *args = 0;

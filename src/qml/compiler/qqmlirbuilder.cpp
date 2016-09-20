@@ -1296,7 +1296,12 @@ bool IRBuilder::isStatementNodeScript(QQmlJS::AST::Statement *statement)
 QV4::CompiledData::Unit *QmlUnitGenerator::generate(Document &output)
 {
     QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit = output.javaScriptCompilationUnit;
-    QV4::CompiledData::Unit *jsUnit = compilationUnit->createUnitData(&output);
+    QV4::CompiledData::Unit *jsUnit;
+    if (!compilationUnit->data)
+        jsUnit = compilationUnit->createUnitData(&output);
+    else
+        jsUnit = compilationUnit->data;
+
     const uint unitSize = jsUnit->unitSize;
 
     const int importSize = sizeof(QV4::CompiledData::Import) * output.imports.count();
@@ -1322,7 +1327,6 @@ QV4::CompiledData::Unit *QmlUnitGenerator::generate(Document &output)
     memset(data + unitSize, 0, totalSize - unitSize);
     if (jsUnit != compilationUnit->data)
         free(jsUnit);
-    jsUnit = 0;
 
     QV4::CompiledData::Unit *qmlUnit = reinterpret_cast<QV4::CompiledData::Unit *>(data);
     qmlUnit->unitSize = totalSize;
@@ -1333,8 +1337,22 @@ QV4::CompiledData::Unit *QmlUnitGenerator::generate(Document &output)
     qmlUnit->offsetToObjects = unitSize + importSize;
     qmlUnit->nObjects = output.objects.count();
     qmlUnit->indexOfRootObject = output.indexOfRootObject;
+
+#ifdef ENABLE_UNIT_CACHE
+    if (compilationUnit->isRestored) {
+        qmlUnit->offsetToStringTable = jsUnit->offsetToStringTable;
+        qmlUnit->stringTableSize = jsUnit->stringTableSize;
+    } else {
+        qmlUnit->offsetToStringTable = totalSize - output.jsGenerator.stringTable.sizeOfTableAndData();
+        qmlUnit->stringTableSize = output.jsGenerator.stringTable.stringCount();
+    }
+#else
     qmlUnit->offsetToStringTable = totalSize - output.jsGenerator.stringTable.sizeOfTableAndData();
     qmlUnit->stringTableSize = output.jsGenerator.stringTable.stringCount();
+#endif
+
+    // Release
+    jsUnit = 0;
 
     // write imports
     char *importPtr = data + qmlUnit->offsetToImports;
@@ -1426,7 +1444,12 @@ QV4::CompiledData::Unit *QmlUnitGenerator::generate(Document &output)
         }
     }
 
+#ifdef ENABLE_UNIT_CACHE
+    if (!compilationUnit->isRestored)
+        output.jsGenerator.stringTable.serialize(qmlUnit);
+#else
     output.jsGenerator.stringTable.serialize(qmlUnit);
+#endif
 
     return qmlUnit;
 }

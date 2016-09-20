@@ -109,11 +109,13 @@ public:
     
     // These methods are used to link or set values at code generation time.
 
-    void link(Call call, FunctionPtr function)
+    unsigned int link(Call call, FunctionPtr function)
     {
         ASSERT(call.isFlagSet(Call::Linkable));
         call.m_label = applyOffset(call.m_label);
         MacroAssembler::linkCall(code(), call, function);
+
+        return call.m_label.m_offset;
     }
     
     void link(Jump jump, CodeLocationLabel label)

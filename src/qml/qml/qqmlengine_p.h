@@ -249,6 +249,8 @@ public:
 
     mutable QMutex networkAccessManagerMutex;
 
+    int qmlCacheValid;
+
 private:
     // Must be called locked
     QQmlPropertyCache *createCache(QQmlType *, int);

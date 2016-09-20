@@ -211,6 +211,7 @@ void Script::parse()
         QScopedPointer<EvalInstructionSelection> isel(v4->iselFactory->create(QQmlEnginePrivate::get(v4), v4->executableAllocator, &module, &jsGenerator));
         if (inheritContext)
             isel->setUseFastLookups(false);
+        isel->setEngine(QQmlEnginePrivate::get(v4));
         QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit = isel->compile();
         vmFunction = compilationUnit->linkToEngine(v4);
         ScopedObject holder(valueScope, v4->memoryManager->allocObject<CompilationUnitHolder>(compilationUnit));
@@ -314,6 +315,7 @@ QQmlRefPointer<QV4::CompiledData::CompilationUnit> Script::precompile(IR::Module
 
     QScopedPointer<EvalInstructionSelection> isel(engine->iselFactory->create(QQmlEnginePrivate::get(engine), engine->executableAllocator, module, unitGenerator));
     isel->setUseFastLookups(false);
+    isel->setEngine(QQmlEnginePrivate::get(engine));
     return isel->compile(/*generate unit data*/false);
 }
 

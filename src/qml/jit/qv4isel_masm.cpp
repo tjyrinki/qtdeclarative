@@ -43,6 +43,7 @@
 #include "qv4assembler_p.h"
 #include "qv4unop_p.h"
 #include "qv4binop_p.h"
+#include "qv4cachedlinkdata_p.h"
 
 #include <QtCore/QBuffer>
 #include <QtCore/QCoreApplication>
@@ -154,9 +155,13 @@ JSC::MacroAssemblerCodeRef Assembler::link(int *codeSize)
     JSC::LinkBuffer linkBuffer(dummy, this, 0);
 
     QHash<void*, const char*> functions;
+    int i = 0;
     foreach (CallToLink ctl, _callsToLink) {
-        linkBuffer.link(ctl.call, ctl.externalFunction);
+        unsigned int offset = linkBuffer.link(ctl.call, ctl.externalFunction);
+        ctl.call.m_label.m_offset = offset;
         functions[linkBuffer.locationOf(ctl.label).dataLocation()] = ctl.functionName;
+        _callsToLink.replace(i, ctl);
+        i++;
     }
 
     foreach (const DataLabelPatch &p, _dataLabelPatches)
@@ -358,6 +363,25 @@ void InstructionSelection::run(int functionIndex)
     JSC::MacroAssemblerCodeRef codeRef =_as->link(&dummySize);
     compilationUnit->codeRefs[functionIndex] = codeRef;
 
+    QVector<CachedLinkData> calls;
+    QList<Assembler::CallToLink>& callsToLink = _as->callsToLink();
+    for (int i = 0; i < callsToLink.size(); i++) {
+        Assembler::CallToLink& ctl = callsToLink[i];
+        int index = -1;
+        for (uint i = 0; i < sizeof(CACHED_LINK_TABLE) / sizeof (CachedLinkEntry); i++) {
+           if (CACHED_LINK_TABLE[i].addr == ctl.externalFunction.value()) {
+               index = i;
+               break;
+           }
+        }
+        CachedLinkData link;
+        link.index = index;
+        link.offset = ctl.call.m_label.m_offset;
+        calls.append(link);
+    }
+    compilationUnit->linkData.insert(functionIndex, calls); // link data;
+    compilationUnit->linkableCode.insert(functionIndex, _as->codeToLink()); // code to link
+
     qSwap(_function, function);
     delete _as;
     _as = oldAssembler;
@@ -379,6 +403,11 @@ QQmlRefPointer<QV4::CompiledData::CompilationUnit> InstructionSelection::backend
     QQmlRefPointer<QV4::CompiledData::CompilationUnit> result;
     result.adopt(compilationUnit.take());
     return result;
+}
+
+QV4::CompiledData::CompilationUnit* InstructionSelection::mutableCompilationUnit()
+{
+    return compilationUnit.data();
 }
 
 void InstructionSelection::callBuiltinInvalid(IR::Name *func, IR::ExprList *args, IR::Expr *result)
@@ -1954,6 +1983,5 @@ void InstructionSelection::visitCJumpEqual(IR::Binop *binop, IR::BasicBlock *tru
                                 Assembler::ReturnValueRegister, Assembler::TrustedImm32(0),
                                 _block, trueBlock, falseBlock);
 }
-
 
 #endif // ENABLE(ASSEMBLER)

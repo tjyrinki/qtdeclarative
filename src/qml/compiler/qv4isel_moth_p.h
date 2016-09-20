@@ -75,9 +75,11 @@ public:
     ~InstructionSelection();
 
     virtual void run(int functionIndex);
+    virtual QV4::JIT::InstructionSelection* impl() { return NULL; };
 
 protected:
     virtual QQmlRefPointer<CompiledData::CompilationUnit> backendCompileStep();
+    virtual QV4::CompiledData::CompilationUnit* mutableCompilationUnit();
 
     virtual void visitJump(IR::Jump *);
     virtual void visitCJump(IR::CJump *);

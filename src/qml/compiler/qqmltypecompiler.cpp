@@ -218,6 +218,7 @@ bool QQmlTypeCompiler::compile()
         QScopedPointer<QV4::EvalInstructionSelection> isel(v4->iselFactory->create(engine, v4->executableAllocator, &document->jsModule, &document->jsGenerator));
         isel->setUseFastLookups(false);
         isel->setUseTypeInference(true);
+        isel->setEngine(engine);
         document->javaScriptCompilationUnit = isel->compile(/*generated unit data*/false);
     }
 
@@ -423,6 +424,7 @@ QQmlPropertyCacheCreator::QQmlPropertyCacheCreator(QQmlTypeCompiler *typeCompile
     , qmlObjects(*typeCompiler->qmlObjects())
     , imports(typeCompiler->imports())
     , resolvedTypes(typeCompiler->resolvedTypes())
+    , m_url(typeCompiler->url())
 {
 }
 

@@ -3,6 +3,12 @@
 ** Copyright (C) 2015 The Qt Company Ltd.
 ** Contact: http://www.qt.io/licensing/
 **
+** Copyright (C) 2015 Nomovok Ltd. All rights reserved.
+** Contact: info@nomovok.com
+**
+** Copyright (C) 2015 Canonical Limited and/or its subsidiary(-ies).
+** Contact: ricardo.mendoza@canonical.com
+**
 ** This file is part of the QtQml module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL21$
@@ -42,9 +48,65 @@
 #endif
 
 #include <QString>
+#include <QDataStream>
+
+#ifndef V4_UNIT_CACHE
+#undef ENABLE_UNIT_CACHE
+#endif
+
+#ifdef ENABLE_UNIT_CACHE
+#include <private/qqmltypenamecache_p.h>
+#include <private/qqmlcompiler_p.h>
+#include <private/qqmltypeloader_p.h>
+#include <private/qv4compileddata_p.h>
+#include <private/qv4assembler_p.h>
+#include "../jit/qv4cachedlinkdata_p.h"
+#include "../jit/qv4assembler_p.h"
+#include <sys/stat.h>
+#include <QCryptographicHash>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFile>
+#include <QBuffer>
+#endif
+
+bool writeData(QDataStream& stream, const char* data, int len)
+{
+    if (stream.writeRawData(data, len) != len)
+        return false;
+    else
+        return true;
+}
+
+bool writeDataWithLen(QDataStream& stream, const char* data, int len)
+{
+    quint32 l = len;
+    if (!writeData(stream, (const char *)&l, sizeof(quint32)))
+        return false;
+    if (!writeData(stream, data, len))
+        return false;
+    return true;
+}
+
+bool readData(char *data, int len, QDataStream &stream)
+{
+    if (stream.readRawData(data, len) != len) {
+        return false;
+    } else {
+        return true;
+    }
+}
 
 using namespace QV4;
 using namespace QV4::IR;
+
+static bool do_cache = false;
+
+enum CacheState {
+    UNTESTED = 0,
+    VALID = 1,
+    INVALID = 2
+};
 
 EvalInstructionSelection::EvalInstructionSelection(QV4::ExecutableAllocator *execAllocator, Module *module, QV4::Compiler::JSUnitGenerator *jsGenerator)
     : useFastLookups(true)
@@ -61,6 +123,9 @@ EvalInstructionSelection::EvalInstructionSelection(QV4::ExecutableAllocator *exe
     Q_ASSERT(execAllocator);
 #endif
     Q_ASSERT(module);
+
+    // Enable JIT cache only when explicitly requested and only cache files-on-disk (no qrc or inlines)
+    do_cache = !qgetenv("QV4_ENABLE_JIT_CACHE").isEmpty() && irModule->fileName.startsWith(QStringLiteral("file://"));
 }
 
 EvalInstructionSelection::~EvalInstructionSelection()
@@ -69,15 +134,307 @@ EvalInstructionSelection::~EvalInstructionSelection()
 EvalISelFactory::~EvalISelFactory()
 {}
 
-QQmlRefPointer<CompiledData::CompilationUnit> EvalInstructionSelection::compile(bool generateUnitData)
+QQmlRefPointer<QV4::CompiledData::CompilationUnit> EvalInstructionSelection::runAll(bool generateUnitData)
 {
-    for (int i = 0; i < irModule->functions.size(); ++i)
-        run(i);
+    for (int i = 0; i < irModule->functions.size(); ++i) {
+        run(i); // Performs the actual compilation
+    }
 
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> unit = backendCompileStep();
+    QQmlRefPointer<QV4::CompiledData::CompilationUnit> result = backendCompileStep();
+
+#ifdef ENABLE_UNIT_CACHE
+    result->isRestored = false;
+#endif
+
     if (generateUnitData)
+        result->data = jsGenerator->generateUnit();
+
+    return result;
+}
+
+QQmlRefPointer<QV4::CompiledData::CompilationUnit> EvalInstructionSelection::compile(bool generateUnitData)
+{
+#ifndef ENABLE_UNIT_CACHE
+    return runAll(generateUnitData);
+#else
+    QQmlRefPointer<QV4::CompiledData::CompilationUnit> result(nullptr);
+
+    // Check if running JIT mode and if cache is enabled
+    if (!do_cache || !this->impl()) {
+        return runAll(generateUnitData);
+    }
+
+    QV4::CompiledData::CompilationUnit *unit;
+    bool loaded = false;
+    bool do_save = true;
+
+    QByteArray path(qgetenv("HOME") + QByteArray("/.cache/QML/Apps/") + (qgetenv("APP_ID").isEmpty() ? QCoreApplication::applicationName().toLatin1() : qgetenv("APP_ID")));
+
+    if (m_engine && m_engine->qmlCacheValid == CacheState::UNTESTED) {
+        bool valid = true;
+        QDir cacheDir;
+        cacheDir.setPath(QLatin1String(path));
+        QStringList files = cacheDir.entryList();
+        for (int i = 0; i < files.size(); i++) {
+            if (valid == false)
+                break;
+
+            QFile cacheFile(path + QDir::separator() + files.at(i));
+            if (cacheFile.open(QIODevice::ReadOnly)) {
+                QDataStream stream(&cacheFile);
+                quint32 strLen = 0;
+                readData((char *)&strLen, sizeof(quint32), stream);
+                if (strLen == 0) {
+                    cacheFile.close();
+                    continue;
+                }
+
+                char *tmpStr = (char *) malloc(strLen);
+                readData((char *)tmpStr, strLen, stream);
+                quint32 mtime = 0;
+                readData((char *)&mtime, sizeof(quint32), stream);
+
+                struct stat sb;
+                stat(tmpStr, &sb);
+                if (QFile::exists(QLatin1String(tmpStr))) {
+                    QByteArray time(ctime(&sb.st_mtime));
+                    if (mtime != (quint32) sb.st_mtime) {
+                        if (m_engine) m_engine->qmlCacheValid = CacheState::INVALID;
+                        valid = false;
+                    }
+                } else {
+                    // Compilation unit of unresolvable type (inline), remove
+                    cacheFile.remove();
+                }
+
+                free(tmpStr);
+                cacheFile.close();
+            }
+        }
+        if (valid) {
+            m_engine->qmlCacheValid = CacheState::VALID;
+        } else {
+            for (int i = 0; i < files.size(); i++)
+                cacheDir.remove(files.at(i));
+        }
+    }
+
+    // Search for cache blob by mtime/app_id/file hash
+    struct stat sb;
+    stat(irModule->fileName.toLatin1().remove(0, 7).constData(), &sb);
+    QByteArray time(ctime(&sb.st_mtime));
+    QByteArray urlHash(QCryptographicHash::hash((irModule->fileName.toLatin1() + qgetenv("APP_ID") + time), QCryptographicHash::Md5).toHex());
+    QDir dir;
+    dir.mkpath(QLatin1String(path));
+    QFile cacheFile(path + QDir::separator() + urlHash);
+
+    QByteArray fileData;
+
+    // TODO: Support inline compilation units
+    if (cacheFile.exists() && cacheFile.open(QIODevice::ReadOnly)) {
+        if (!irModule->fileName.isEmpty() && !irModule->fileName.contains(QStringLiteral("inline")) && m_engine) {
+            loaded = true;
+            fileData.append(cacheFile.readAll());
+        } else {
+            loaded = false;
+            cacheFile.close();
+            return runAll(generateUnitData);
+        }
+    }
+
+    // Check file integrity
+    QString fileHash(QLatin1String(QCryptographicHash::hash(fileData.left(fileData.size()-32), QCryptographicHash::Md5).toHex()));
+    if (!fileHash.contains(QLatin1String(fileData.right(32)))) {
+        cacheFile.close();
+        cacheFile.remove();
+        loaded = false;
+    }
+
+    // This code has been inspired and influenced by Nomovok's QMLC compiler available at
+    // https://github.com/qmlc/qmlc. All original Copyrights are maintained for the
+    // basic code snippets.
+    if (loaded) {
+        // Retrieve unit skeleton from isel implementation
+        unit = mutableCompilationUnit();
+        QV4::JIT::CompilationUnit *tmpUnit = (QV4::JIT::CompilationUnit *) unit;
+        tmpUnit->codeRefs.resize(irModule->functions.size());
+
+        QDataStream stream(fileData);
+
+        quint32 strLen = 0;
+        readData((char *)&strLen, sizeof(quint32), stream);
+        char *tmpStr = (char *) malloc(strLen);
+        readData((char *)tmpStr, strLen, stream);
+        quint32 mtime = 0;
+        readData((char *)&mtime, sizeof(quint32), stream);
+
+        unit->lookupTable.reserve(tmpUnit->codeRefs.size());
+        quint32 len;
+        for (int i = 0; i < tmpUnit->codeRefs.size(); i++) {
+            quint32 strLen;
+            readData((char *)&strLen, sizeof(quint32), stream);
+
+            char *fStr = (char *) malloc(strLen);
+            readData(fStr, strLen, stream);
+
+            QString hashString(QLatin1String(irModule->functions.at(i)->name->toLatin1().constData()));
+            hashString.append(QString::number(irModule->functions.at(i)->line));
+            hashString.append(QString::number(irModule->functions.at(i)->column));
+
+            if (!hashString.contains(QLatin1String(fStr)))
+                return runAll(generateUnitData);
+
+            unit->lookupTable.append(i);
+
+            len = 0;
+            readData((char *)&len, sizeof(quint32), stream);
+
+            // Temporary unlinked code buffer
+            executableAllocator->allocate(len);
+            char *data = (char *) malloc(len);
+            readData(data, len, stream);
+
+            quint32 linkCallCount = 0;
+            readData((char *)&linkCallCount, sizeof(quint32), stream);
+
+            QVector<QV4::JIT::CachedLinkData> linkCalls;
+            linkCalls.resize(linkCallCount);
+            readData((char *)linkCalls.data(), linkCallCount * sizeof(QV4::JIT::CachedLinkData), stream);
+
+            quint32 constVectorLen = 0;
+            readData((char *)&constVectorLen, sizeof(quint32), stream);
+
+            QVector<QV4::Primitive > constantVector;
+            if (constVectorLen > 0) {
+                constantVector.resize(constVectorLen);
+                readData((char *)constantVector.data(), constVectorLen * sizeof(QV4::Primitive), stream);
+            }
+
+            // Pre-allocate link buffer to append code
+            QV4::ExecutableAllocator* executableAllocator = m_engine->v4engine()->executableAllocator;
+
+            QV4::IR::Function nullFunction(0, 0, QLatin1String(""));
+
+            QV4::JIT::Assembler* as = new QV4::JIT::Assembler(this->impl(), &nullFunction, executableAllocator);
+
+            QList<QV4::JIT::Assembler::CallToLink>& callsToLink = as->callsToLink();
+            for (int i = 0; i < linkCalls.size(); i++) {
+                QV4::JIT::CachedLinkData& call = linkCalls[i];
+                void *functionPtr = CACHED_LINK_TABLE[call.index].addr;
+                QV4::JIT::Assembler::CallToLink c;
+                JSC::AssemblerLabel label(call.offset);
+                c.call = QV4::JIT::Assembler::Call(label, QV4::JIT::Assembler::Call::Linkable);
+                c.externalFunction = JSC::FunctionPtr((quint32(*)(void))functionPtr);
+                c.functionName = CACHED_LINK_TABLE[call.index].name;
+                callsToLink.append(c);
+            }
+
+            QV4::JIT::Assembler::ConstantTable& constTable = as->constantTable();
+            foreach (const QV4::Primitive &p, constantVector)
+               constTable.add(p);
+
+            as->appendData(data, len);
+
+            int dummySize = -1; // Pass known value to trigger use of code buffer
+            tmpUnit->codeRefs[i] = as->link(&dummySize);
+            //Q_ASSERT(dummySize == (int)codeRefLen);
+
+            delete as;
+        }
+
+        quint32 size = 0;
+        readData((char *)&size, sizeof(quint32), stream);
+
+        void *dataPtr = malloc(size);
+        QV4::CompiledData::Unit *finalUnit = reinterpret_cast<QV4::CompiledData::Unit*>(dataPtr);
+        if (size > 0)
+            readData((char *)dataPtr, size, stream);
+
+        result = backendCompileStep();
+        unit = result.data();
+
+        unit->data = nullptr;
+        if (irModule->functions.size() > 0)
+            unit->data = finalUnit;
+        unit->isRestored = true;
+    } else {
+        // Not loading from cache, run all instructions
+        result = runAll(false);
+        unit = result.data();
+    }
+
+    if ((unit->data == nullptr) && (do_save || generateUnitData))
         unit->data = jsGenerator->generateUnit();
-    return unit;
+
+    // Save compilation unit
+    QV4::JIT::CompilationUnit *jitUnit = (QV4::JIT::CompilationUnit *) unit;
+    if (!loaded) {
+        if (cacheFile.open(QIODevice::WriteOnly)) {
+            // TODO: Support inline compilation units
+            if (!irModule->fileName.isEmpty() && !irModule->fileName.contains(QLatin1String("inline")) && m_engine) {
+                QBuffer fillBuff;
+                fillBuff.open(QIODevice::WriteOnly);
+                QDataStream stream(&fillBuff);
+
+                quint32 fileNameSize = irModule->fileName.size();
+                writeData(stream, (const char *)&fileNameSize, sizeof(quint32));
+                writeData(stream, (const char *)irModule->fileName.toLatin1().remove(0, 7).constData(), irModule->fileName.size());
+
+                struct stat sb;
+                stat(irModule->fileName.toLatin1().remove(0, 7).constData(), &sb);
+                writeData(stream, (const char *)&sb.st_mtime, sizeof(quint32));
+
+                for (int i = 0; i < jitUnit->codeRefs.size(); i++) {
+                    const JSC::MacroAssemblerCodeRef &codeRef = jitUnit->codeRefs[i];
+                    const QVector<QV4::Primitive> &constantValue = jitUnit->constantValues[i];
+                    quint32 len = codeRef.size();
+
+                    QString hashString(QLatin1String(irModule->functions.at(i)->name->toLatin1()));
+                    hashString.append(QString::number(irModule->functions.at(i)->line));
+                    hashString.append(QString::number(irModule->functions.at(i)->column));
+
+                    quint32 strLen = hashString.size();
+                    strLen += 1; // /0 char
+                    writeData(stream, (const char *)&strLen, sizeof(quint32));
+                    writeData(stream, (const char *)hashString.toLatin1().constData(), strLen);
+                    writeData(stream, (const char *)&len, sizeof(quint32));
+                    writeData(stream, (const char *)(((unsigned long)codeRef.code().executableAddress())&~1), len);
+
+                    const QVector<QV4::JIT::CachedLinkData> &linkCalls = jitUnit->linkData[i];
+                    quint32 linkCallCount = linkCalls.size();
+
+                    writeData(stream, (const char *)&linkCallCount, sizeof(quint32));
+                    if (linkCallCount > 0)
+                        writeData(stream, (const char *)linkCalls.data(), linkCalls.size() * sizeof (QV4::JIT::CachedLinkData));
+
+                    quint32 constTableCount = constantValue.size();
+                    writeData(stream, (const char *)&constTableCount, sizeof(quint32));
+
+                    if (constTableCount > 0)
+                        writeData(stream, (const char*)constantValue.data(), sizeof(QV4::Primitive) * constantValue.size());
+                }
+
+                QV4::CompiledData::Unit *retUnit = unit->data;
+                quint32 size = retUnit->unitSize;
+
+                if (size > 0) {
+                    writeData(stream, (const char*)&size, sizeof(quint32));
+                    writeData(stream, (const char*)retUnit, size);
+                }
+
+                // Write MD5 hash of stored data for consistency check
+                QByteArray fileHash(QCryptographicHash::hash(fillBuff.data(), QCryptographicHash::Md5).toHex());
+                fillBuff.write(fileHash);
+                cacheFile.write(fillBuff.data());
+            }
+            cacheFile.close();
+        } else {
+            cacheFile.close();
+        }
+    }
+
+    return result;
+#endif
 }
 
 void IRDecoder::visitMove(IR::Move *s)

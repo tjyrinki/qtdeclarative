@@ -1,9 +1,9 @@
 TEMPLATE = subdirs
 
 PUBLICTESTS += \
-    qqmlenginedebugservice \
+#    qqmlenginedebugservice \
     qqmldebugjs \
-    qqmlinspector \
+#    qqmlinspector \
     qqmlprofilerservice \
     qpacketprotocol \
     qqmlenginedebuginspectorintegrationtest \

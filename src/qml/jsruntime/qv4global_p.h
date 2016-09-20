@@ -116,6 +116,9 @@ inline double trunc(double d) { return d > 0 ? floor(d) : ceil(d); }
 #define ENABLE_YARR_JIT 1
 #define ENABLE_JIT 1
 #define ENABLE_ASSEMBLER 1
+#if defined(V4_UNIT_CACHE)
+    #define ENABLE_UNIT_CACHE 1
+#endif
 #else
 #define ENABLE_YARR_JIT 0
 #define ENABLE_ASSEMBLER 0

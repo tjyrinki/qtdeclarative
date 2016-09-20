@@ -1,15 +1,14 @@
 TEMPLATE=subdirs
 SUBDIRS=\
-    qml \
+#    qml \
     quick \
     particles \
-    qmltest \
-    qmldevtools \
+#    qmltest \
+#    qmldevtools \
     cmake \
     installed_cmake \
     toolsupport
 
-qtHaveModule(widgets): SUBDIRS += quickwidgets
 
 qmldevtools.CONFIG = host_build
 

@@ -39,7 +39,12 @@
 #include <QtCore/qmath.h>
 #include <QtCore/QDebug>
 #include <cassert>
+
+#ifdef SYSTEM_DOUBLECONVERSION
+#include <double-conversion/double-conversion.h>
+#else
 #include <double-conversion.h>
+#endif
 
 using namespace QV4;
 

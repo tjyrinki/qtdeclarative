@@ -69,7 +69,15 @@ void CompilationUnit::linkBackendToEngine(ExecutionEngine *engine)
 
         QV4::Function *runtimeFunction = new QV4::Function(engine, this, compiledFunction,
                                                            (ReturnedValue (*)(QV4::ExecutionEngine *, const uchar *)) codeRefs[i].code().executableAddress());
-        runtimeFunctions[i] = runtimeFunction;
+
+#if ENABLE_UNIT_CACHE
+        if (isRestored)
+            runtimeFunctions[lookupTable.at(i)] = runtimeFunction;
+        else
+            runtimeFunctions[i] = runtimeFunction;
+#else
+    runtimeFunctions[i] = runtimeFunction;
+#endif
     }
 }
 

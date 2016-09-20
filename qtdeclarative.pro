@@ -1,4 +1,10 @@
 CONFIG += tests_need_tools examples_need_tools
+
+linux {
+    load(configure)
+    qtCompileTest(double-conversion)
+}
+
 load(qt_parts)
 
 !python_available {

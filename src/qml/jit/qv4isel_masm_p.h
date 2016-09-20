@@ -76,8 +76,11 @@ public:
     virtual void run(int functionIndex);
 
     const void *addConstantTable(QVector<QV4::Primitive> *values);
+
+    virtual InstructionSelection* impl() { return this; };
 protected:
     virtual QQmlRefPointer<QV4::CompiledData::CompilationUnit> backendCompileStep();
+    virtual QV4::CompiledData::CompilationUnit* mutableCompilationUnit();
 
     virtual void callBuiltinInvalid(IR::Name *func, IR::ExprList *args, IR::Expr *result);
     virtual void callBuiltinTypeofQmlContextProperty(IR::Expr *base, IR::Member::MemberKind kind, int propertyIndex, IR::Expr *result);

@@ -608,6 +608,11 @@ struct Q_QML_PRIVATE_EXPORT CompilationUnit : public QQmlRefCount
     QVector<QV4::Function *> runtimeFunctions;
     mutable QQmlNullableValue<QUrl> m_url;
 
+#ifdef ENABLE_UNIT_CACHE
+    QVector<int> lookupTable;
+    bool isRestored;
+#endif
+
     // index is object index. This allows fast access to the
     // property data when initializing bindings, avoiding expensive
     // lookups by string (property name).

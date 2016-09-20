@@ -59,6 +59,10 @@ class QQmlEnginePrivate;
 
 namespace QV4 {
 
+namespace JIT {
+    class InstructionSelection;
+}
+
 class ExecutableAllocator;
 struct Function;
 
@@ -68,6 +72,7 @@ public:
     EvalInstructionSelection(QV4::ExecutableAllocator *execAllocator, IR::Module *module, QV4::Compiler::JSUnitGenerator *jsGenerator);
     virtual ~EvalInstructionSelection() = 0;
 
+    QQmlRefPointer<QV4::CompiledData::CompilationUnit> runAll(bool generateUnitData);
     QQmlRefPointer<QV4::CompiledData::CompilationUnit> compile(bool generateUnitData = true);
 
     void setUseFastLookups(bool b) { useFastLookups = b; }
@@ -82,10 +87,13 @@ public:
     int registerRegExp(IR::RegExp *regexp) { return jsGenerator->registerRegExp(regexp); }
     int registerJSClass(int count, IR::ExprList *args) { return jsGenerator->registerJSClass(count, args); }
     QV4::Compiler::JSUnitGenerator *jsUnitGenerator() const { return jsGenerator; }
+    void setEngine(QQmlEnginePrivate *qmlEngine) { m_engine = qmlEngine; }
 
 protected:
     virtual void run(int functionIndex) = 0;
+    virtual QV4::JIT::InstructionSelection* impl() = 0;
     virtual QQmlRefPointer<QV4::CompiledData::CompilationUnit> backendCompileStep() = 0;
+    virtual QV4::CompiledData::CompilationUnit* mutableCompilationUnit() = 0;
 
     bool useFastLookups;
     bool useTypeInference;
@@ -93,6 +101,7 @@ protected:
     QV4::Compiler::JSUnitGenerator *jsGenerator;
     QScopedPointer<QV4::Compiler::JSUnitGenerator> ownJSGenerator;
     IR::Module *irModule;
+    QQmlEnginePrivate *m_engine;
 };
 
 class Q_QML_PRIVATE_EXPORT EvalISelFactory
